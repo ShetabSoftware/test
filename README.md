@@ -121,6 +121,19 @@ pip install pytest
 pytest -q
 ```
 
+## MATLAB / Octave
+
+A standalone MATLAB port of the same algorithm lives in [`matlab/`](matlab/) and
+requires only base MATLAB (no toolboxes); it also runs under GNU Octave. See
+[`matlab/README.md`](matlab/README.md) for details.
+
+```matlab
+addpath('matlab');
+sig = generateFSK(9600, 192000, 6000, 'order', 2, 'snrDb', 10, 'seed', 0);
+est = estimateSymbolRate(sig.iq, 192000, 'method', 'auto');
+fprintf('Rs = %.1f Hz\n', est.symbolRate);
+```
+
 ## Module layout
 
 | Module                  | Contents                                              |

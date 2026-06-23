@@ -28,3 +28,7 @@ env/
 *.cf32
 *.cf64
 examples/*.png
+
+# Octave / MATLAB
+octave-workspace
+*.asv
