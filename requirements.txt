@@ -1,0 +1,4 @@
+numpy>=1.22
+# Optional extras used by the examples/visualisation and the test runner:
+#   matplotlib>=3.5   (examples/plot_*.py)
+#   pytest>=7.0       (test suite)

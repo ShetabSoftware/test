@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fsk-baud"
+version = "0.1.0"
+description = "Blind symbol (baud) rate estimation for FSK signals from IQ samples."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "ShetabSoftware" }]
+keywords = ["fsk", "dsp", "symbol rate", "baud rate", "blind estimation", "sdr", "cyclostationary"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+]
+dependencies = ["numpy>=1.22"]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.5"]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+fsk-baud = "fsk_baud.cli:main"
+
+[tool.setuptools]
+packages = ["fsk_baud"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
