@@ -43,6 +43,38 @@ runTests         % assertion-based test suite
    (`autocorr`, smallest periodic lag + far-harmonic refinement). `auto` runs
    both and cross-checks.
 
+## HF 2-FSK blind symbol-rate estimator (`blindSymbolRateFSK.m`)
+
+`blindSymbolRateFSK.m` is a self-contained estimator tailored to the HF 2-FSK /
+Watterson scenario (e.g. `Fs=9600`, tones 600/900 Hz). It is a clean, toolbox-
+free packaging of the IF-hard-limit → transition-clock-FFT approach, and is a
+drop-in replacement for a hand-rolled estimation block:
+
+```matlab
+Rs_hat = blindSymbolRateFSK(rxChanNoisy, Fs, Rs_min, Rs_max);
+% Rs == Delta f case (e.g. Rs=300 with tones 600/900): disable the notch
+Rs_hat = blindSymbolRateFSK(rx, Fs, Rs_min, Rs_max, 'notchToneSpacing', false);
+```
+
+`blind2FSK_rx_test.m` is the full receiver simulation (2FSK + Watterson channel +
+BER + Monte-Carlo + plots) wired to call this estimator, and `testBlindRsHF.m`
+is a fast Monte-Carlo accuracy harness.
+
+**Practical notes / limitations (HF channel).** Blind symbol-rate estimation on
+a fast-fading multipath HF channel is genuinely hard:
+
+- On multipath the instantaneous frequency **beats at the tone spacing `Δf`**
+  (when direct/echo paths carry different tones), producing a strong spurious
+  line at `Δf`; it is notched using a blind `Δf` estimate.
+- `Rs = Δf` (e.g. 300 baud with 300 Hz spacing) is an **inherent ambiguity**
+  (a symbol clock vs the tone beat) — disable the notch for that case.
+- The modulator in the reference script is **discontinuous-phase** FSK, which
+  injects extra tone-related lines into the transition signal; a
+  continuous-phase (CPFSK) source is markedly easier to estimate blindly (the
+  `generateFSK.m` / `estimateSymbolRate.m` tools above handle CPFSK very well).
+- Accuracy improves with record length, higher `Eb/N0`, milder channels, and
+  Monte-Carlo averaging; tune via `'notchHz'`, `'smoothDiv'`, `'subharmThresh'`.
+
 ## Functions
 
 | File                              | Purpose                                        |
