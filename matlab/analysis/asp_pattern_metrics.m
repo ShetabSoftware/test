@@ -66,13 +66,27 @@ end
 
 % --- authentic satellites
 idxAuth = find(isAuth);
-met.authGainDB = zeros(1, numel(idxAuth));
+met.authGainDB     = zeros(1, numel(idxAuth));
+met.authGainQuiDB  = zeros(1, numel(idxAuth));
 for k = 1:numel(idxAuth)
-    met.authGainDB(k) = gainDb(f, scn.aTrue(:,idxAuth(k)), fPow);
+    met.authGainDB(k)    = gainDb(f,    scn.aTrue(:,idxAuth(k)), fPow);
+    met.authGainQuiDB(k) = gainDb(hRef, scn.aTrue(:,idxAuth(k)), hPow);
 end
 met.authGainMeanDB  = 10*log10(mean(10.^(met.authGainDB/10)));
 met.authGainMinDB   = min(met.authGainDB);
 met.authGainMedianDB = median(met.authGainDB);
+
+% Gain relative to the quiescent (non-adaptive) beam.  This is the number
+% that answers "what did nulling cost my satellites", and it is the correct
+% comparison because the quiescent beam is what the product would output if
+% the detector declared no threat.  The ABSOLUTE gain figures depend on the
+% quiescent beam's own shape - h = ones/sqrt(N) is a zenith-pointing beam
+% with +10*log10(N) dB at zenith and correspondingly less elsewhere - so
+% absolute numbers alone are easy to misread.
+met.authGainQuiMeanDB = 10*log10(mean(10.^(met.authGainQuiDB/10)));
+met.authGainChangeDB  = met.authGainDB - met.authGainQuiDB;
+met.authGainChangeMeanDB = met.authGainMeanDB - met.authGainQuiMeanDB;
+met.authGainChangeWorstDB = min(met.authGainChangeDB);
 
 % Number of satellites pushed below single-antenna performance.  This is
 % the metric that decides whether the receiver still has a usable geometry,

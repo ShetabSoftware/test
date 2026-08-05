@@ -44,8 +44,23 @@ cfg.chipRate = 1.023e6;
 
 % ---------------------------------------------------------------- Array
 cfg.nAnt        = 4;
-cfg.geometry    = 'circ4';    % see asp_array_geometry: tri3 sq4 circ4 y4 circ7 circ8
-cfg.elementSpacingLambda = 0.5;
+% 'y4' = three elements on a ring at 120 deg plus one at the centre.
+%
+% This beats the 2x2 square for the same four elements and the same radome,
+% and the reason is a lattice property rather than anything about the
+% element count.  The baseline set of the Y generates a TRIANGULAR lattice,
+% which aliases only when the spacing reaches 2*lambda/sqrt(3) = 1.155*(lambda/2),
+% whereas the square lattice of a 2x2 array aliases at lambda/2 exactly.
+% Inside a 0.5 lambda radome and holding the grating response at -3 dB, that
+% buys a maximum baseline of 0.82 lambda instead of 0.53 lambda, a 37%
+% narrower spatial null, and it cuts the fraction of satellites left worse
+% off than a single antenna from 12.8% to 6.9% (studies/study_array_size.m).
+% The cost is that the centre element has three near neighbours while the
+% outer elements have one, so their embedded patterns and mutual coupling
+% differ - which matters for manifold calibration but not for the
+% projection algorithm, since it never uses the manifold.
+cfg.geometry    = 'y4';
+cfg.elementSpacingLambda = 0.45;   % ring radius in wavelengths
 cfg.refElement  = 1;
 
 % ---------------------------------------------------------------- Signals

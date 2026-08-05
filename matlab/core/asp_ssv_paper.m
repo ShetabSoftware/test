@@ -34,12 +34,18 @@ function [y, dbg] = asp_ssv_paper(x, K, refIdx)
 %       spoofing PRNs, larger by roughly N_spoof/sqrt(N_total) ~ 8 dB, and
 %       it has no such fading mode.
 %
-%   (b) beta is DATA-BIT SENSITIVE.  It correlates samples one code period
-%       apart, so any 20 ms navigation bit transition inverts the sign of
-%       the contribution from every emitter whose bit flipped.  Accumulating
-%       beta beyond ~10 ms therefore partially cancels.  gamma correlates
-%       samples at the SAME instant, so the data bit appears on both factors
-%       and cancels identically - gamma can be accumulated indefinitely.
+%       Measured across 40 scenes with the full waveform model, |beta| varies
+%       by 13.7x scene to scene while the covariance diagonal, which
+%       estimates the same |C_i|^2, varies by a few percent.
+%
+%   (b) beta is data-bit SENSITIVE but, as it turns out, not data-bit
+%       DAMAGED.  A 20 ms navigation transition inside the dwell does invert
+%       part of the lagged sum - but only through d, and d is COMMON to
+%       every element, so it cancels in the scale-invariant projector.
+%       Measured effect at a 10 ms dwell is rho 0.99668 with bits versus
+%       0.99702 without: negligible.  This was worth checking rather than
+%       assuming; the bits do, however, add one more independent
+%       randomisation to d and so make the fading in (a) more likely.
 %
 %   (c) beta needs a full code period of delay memory per channel: at
 %       fs = 16.368 MHz and 16-bit I/Q that is 4 x 16368 x 32 bits = 2.1 Mbit,

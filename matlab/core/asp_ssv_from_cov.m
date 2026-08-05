@@ -6,10 +6,21 @@ function [y, dbg] = asp_ssv_from_cov(R, mode, opt)
 %   R     N x N sample spatial covariance, R = (1/K) sum_n r(n) r(n)'
 %   MODE  'evd'    principal eigenvector of the whitened covariance
 %                  (recommended; supports rank > 1)
-%         'gamma'  first column of the whitened covariance, i.e. the
-%                  paper's estimator with the better amplitude statistic
-%         'column' raw first column of R (paper's phase, R diagonal
-%                  amplitude) - the cheapest useful variant
+%         'gamma'  magnitude from the covariance DIAGONAL, phase from the
+%                  reference column: y_i = sqrt(R_ii)*exp(j*angle(R_i1)).
+%                  This is the paper's equation (7) with beta replaced by
+%                  the diagonal - same structure, strictly better statistic,
+%                  no epoch-delay memory.  The cheapest useful variant.
+%         'column' raw reference column of R, y_i = R_i1.  Included as a
+%                  CAUTIONARY baseline: it does not work, and the reason is
+%                  instructive.  R_11 = sum|r_1|^2 is dominated by NOISE
+%                  power, while R_i1 for i != 1 contains only the spoofer
+%                  cross-term, so the raw column is not proportional to b -
+%                  its first entry is larger than the rest by sigma^2/P_s,
+%                  about 12 dB at 5.5 dB SAPR.  Measured accuracy is
+%                  rho = 0.74 and null depth -6.5 dB.  Splitting magnitude
+%                  from phase, as the paper does, is not a stylistic choice;
+%                  it is what makes the estimator work at all.
 %   OPT   .refIdx        reference element for the 'gamma'/'column' modes
 %         .rank          number of spoofing subspace dimensions to return
 %         .jacobiSweeps  sweeps for the eigen-decomposition
@@ -101,11 +112,13 @@ switch lower(mode)
         dbg.U = [];
 
     case 'gamma'
-        col = Rw(:, opt.refIdx);
-        y = dsqrt .* (col ./ max(abs(col), eps)) .* abs(col);
-        % Equivalent to dsqrt .* col; written out to make the
-        % magnitude/phase split explicit against the paper's equation (7).
-        y = dsqrt .* col;
+        % Magnitude from the diagonal, phase from the reference column -
+        % the paper's equation (7), with sqrt(|beta_i|) replaced by
+        % sqrt(R_ii).  Both estimate |C_i| up to a factor common to all
+        % elements, which the projector removes; the diagonal does it with
+        % far lower variance and with no code-period delay line.
+        col = R(:, opt.refIdx);
+        y = dsqrt .* exp(1i*angle(col));
         dbg.lam = [];
         dbg.U = [];
 

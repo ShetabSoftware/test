@@ -108,7 +108,18 @@ meta.maxBaselineLambda = max(offDiag) / lambda;
 meta.minBaselineLambda = min(offDiag) / lambda;
 meta.apertureLambda   = max(sqrt(sum(pos.^2,1))) / lambda;
 meta.nUniqueBaselines = numel(uniquetol_local(offDiag/lambda, 1e-6));
-meta.ambiguous        = meta.maxBaselineLambda > 0.5 + 1e-9;
+
+% Ambiguity is a property of the baseline LATTICE, not of the longest
+% baseline.  See asp_array_ambiguity for why the "keep every baseline under
+% lambda/2" rule of thumb is wrong for planar arrays and costs real
+% aperture.  Computing the array factor here is a few milliseconds and is
+% skipped only if the caller asks for positions alone.
+if nargout > 1
+    meta.amb = asp_array_ambiguity(pos, lambda, 241);
+    meta.ambiguous       = meta.amb.ambiguous;
+    meta.gratingLevelDB  = meta.amb.peakLevelDB;
+    meta.nullWidthU      = meta.amb.mainlobeNullU;
+end
 
 % Second moment isotropy: for a planar aperture, sum_i p_i p_i^T should be
 % proportional to the 2x2 identity for the null/beam width to be independent
