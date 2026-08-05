@@ -35,9 +35,9 @@ An N-element narrowband beamformer has N complex weights, hence **N − 1 indepe
   ------------------------------------------------------
   remaining adaptive DOF               1          2
   
-  ... with a spoofer ground bounce (rank-2 spoofing subspace):
+  ... with a second emitter or reflector (rank-2 spoofing subspace):
   desired-signal constraint            1          1
-  spoofer + ground bounce nulls        2          2
+  spoofer + second-arrival nulls       2          2
   ------------------------------------------------------
   remaining adaptive DOF               0          1
 ```
@@ -300,7 +300,7 @@ What *is* affected by element count, and only weakly:
 
 ## 7. Challenges to your framing
 
-**Your spoofer is in the wrong place.** The paper puts it at 45° elevation and your scripts inherit that. Terrestrial spoofers sit at low elevation, which (a) puts them angularly close to the low-elevation satellites that your projection null will damage, and (b) creates the ground bounce that makes the spoofing subspace rank 2. Both effects make three elements look much worse than the paper's simulation suggests. My default scenario uses 15°.
+**Your spoofer is in the wrong place.** The paper puts it at 45° elevation and your scripts inherit that. Terrestrial spoofers sit at low elevation, which puts them angularly close to exactly the low-elevation satellites your projection null will damage, and which is also where nearby structures produce azimuthally-offset reflections. Both effects make three elements look worse than the paper's simulation suggests. My default scenario uses 15°.
 
 **A 2×2 square is not the natural 4-element layout.** See §4 — the Y-array halves your outage probability for free.
 
@@ -333,6 +333,6 @@ What *is* affected by element count, and only weakly:
 | **RF BOM (AD9361 count)** | **2 chips, 1 RX wasted** | **2 chips, 0 wasted** | **tie in cost, 4 wins in value** |
 | Antenna/radome cost | 3 elements | 4 elements | 3 wins, one patch + one LNA |
 
-The entire cost of the fourth element is **one patch antenna, one LNA, one SAW filter, four DSP48 slices, and 14 more streaming multiplies**. Call it $12 of BOM and 2% of a small FPGA. Against that, it roughly halves the number of satellites you destroy, doubles your detection probability at the threat threshold, and is the difference between coping and not coping with a ground bounce.
+The entire cost of the fourth element is **one patch antenna, one LNA, one SAW filter, four DSP48 slices, and 14 more streaming multiplies**. Call it $12 of BOM and 2% of a small FPGA. Against that, it roughly halves the number of satellites you destroy, doubles your detection probability at the threat threshold, and is the difference between coping and not coping with a second emitter.
 
 **Move to four. Use the Y geometry, not the square. Design the digital chain parametric in N so eight is a configuration change.**

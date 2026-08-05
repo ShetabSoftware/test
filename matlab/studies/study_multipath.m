@@ -181,18 +181,30 @@ for fi = 1:numel(res.fs)
     end
 end
 
-fprintf('\nReading the table:\n');
-fprintf('  * "ground bounce" has coherence 1.0000 with the direct path.  A planar\n');
-fprintf('    array cannot tell +elevation from -elevation, so the specular ground\n');
-fprintf('    reflection shares the direct path''s steering vector exactly and is\n');
-fprintf('    co-nulled for free.  Rank 1 is sufficient and rank 2 only wastes a\n');
-fprintf('    degree of freedom (see the auth-gain columns).\n');
-fprintf('  * A reflector at a different AZIMUTH is a genuinely separate source.\n');
-fprintf('    Rank 1 leaves a residual; rank 2 removes it, at the cost of about\n');
-fprintf('    1.8 dB of authentic array gain - which is the degree of freedom a\n');
-fprintf('    3-element array does not have to spare.\n');
-fprintf('  * The two sample rates give similar results because the relevant\n');
-fprintf('    decorrelation is set by the SIGNAL bandwidth (1.023 MHz, a 977 ns\n');
-fprintf('    correlation width), not by the sampling rate.\n\n');
+fprintf('\nReading the table (residuals are TOTAL spoof power, direct + second):\n');
+fprintf('  * GROUND BOUNCE costs nothing.  Coherence with the direct path is\n');
+fprintf('    1.0000 exactly, because a planar array cannot tell +elevation from\n');
+fprintf('    -elevation, so the reflection shares the direct path''s steering\n');
+fprintf('    vector and is co-nulled for free.  The residual is if anything\n');
+fprintf('    BETTER than with no reflection at all, because the bounce adds\n');
+fprintf('    power to the spoofer and so raises the effective SAPR.  Rank 2\n');
+fprintf('    only wastes array gain here (compare the auth columns).\n');
+fprintf('  * A REFLECTOR AT A DIFFERENT AZIMUTH is a genuinely separate source\n');
+fprintf('    and it is expensive: the rank-1 total residual collapses from about\n');
+fprintf('    -28 dB to -5 dB, because the second arrival is simply not nulled and\n');
+fprintf('    then dominates.  Rank 2 recovers 9-10 dB at 60 and 180 degrees.\n');
+fprintf('  * BUT RANK 2 IS NOT ALWAYS RIGHT, and the 90-degree row shows why.\n');
+fprintf('    A second arrival 6 dB down raises the second whitened eigenvalue only\n');
+fprintf('    ~0.06 above the noise floor in a 5 ms dwell.  The resulting\n');
+fprintf('    eigenvector carries roughly 26 degrees of error, so nulling it steers\n');
+fprintf('    a null at a direction that is largely noise - and the result is WORSE\n');
+fprintf('    than leaving it alone.  The rank decision must therefore be driven by\n');
+fprintf('    RESOLVABILITY (an MDL test on the eigenvalues), never by prior\n');
+fprintf('    knowledge that a second source exists.  asp_detect does this; forcing\n');
+fprintf('    a fixed rank, as this study deliberately does, does not.\n');
+fprintf('  * The two sample rates agree closely, because the relevant decorrelation\n');
+fprintf('    is set by the SIGNAL bandwidth (1.023 MHz, a 977 ns correlation\n');
+fprintf('    width), not by the sampling rate.  Widening the ADC does not make\n');
+fprintf('    multipath worse.\n\n');
 
 end

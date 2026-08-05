@@ -178,30 +178,39 @@ Cost, N = 4: 10 correlators instead of 7 (32 real multiplies vs 28, +14%). At N 
 | First answer available | 2 ms | 1 ms |
 | Null depth @ 2 ms | −15.8 dB | −25.3 dB |
 
-**M3. Rank-1 only — and the ground bounce is the single largest unmodelled effect in the design.**
+**M3. Rank-1 only. Model the second coherent arrival — but not the one you would expect.**
 
-A terrestrial spoofer at 100 m with a 2 m antenna height produces a specular reflection ~20 ns later at −3 to −10 dB, from a *different* elevation. None of the three scripts models it. It turns out to matter more than anything else.
+None of the three scripts models any second arrival from the spoofer. Investigating this produced the most interesting correction in the whole review, so I will give the wrong answer first, because the intuition behind it is common.
 
-Twenty nanoseconds is 0.02 C/A chips, so the bounce is **not resolvable** at C/A bandwidth — it adds coherently inside a single correlation cell. That does not make it harmless; it makes the spoofing source **partially coherent**. The covariance of a two-ray source is
+**What I expected.** A terrestrial spoofer produces a specular ground reflection ~20 ns later at −3 to −10 dB, from a different elevation. Twenty nanoseconds is 0.02 C/A chips, so the reflection is unresolvable and adds coherently — making the source *partially coherent* and hence rank 2, which a rank-one projector cannot remove. Two rays, two nulls.
 
-$$R_s = P_s\left[\mathbf{bb}^H + \alpha^2\mathbf{b_m b_m}^H + \alpha\rho\,(\mathbf{b b_m}^H + \mathbf{b_m b}^H)\right],\qquad \rho = \mathrm{sinc}(B\,\Delta t)$$
+**What the measurement says.** It costs nothing at all, because **a planar array cannot distinguish elevation +θ from −θ.** With every element at z = 0 the response depends only on the direction cosines (cos E·cos A, cos E·sin A), and cosine is even. Measured coherence between (az 45°, el +15°) and (az 45°, el −15°): **1.000000** — exactly, not approximately. A specular ground reflection arrives at precisely the mirror elevation and the same azimuth, so it shares the direct path's steering vector at every frequency, and the rank-one projector that removes the direct path removes the reflection as a free side effect. Measured null depth is if anything *better* with the bounce present, because it adds power to the spoofer. Spending a second null on it merely wastes array gain.
 
-which is **rank two**, with a second eigenvalue that grows as the processing bandwidth widens and ρ falls away from 1. A rank-one projector cannot remove it, so the achievable null is capped at λ₂/λ₁. For α = −6 dB and Δt = 20 ns:
+The intuition fails because "two rays need two nulls" is imported from arrays that have a **vertical baseline**. This one does not.
 
-| processing bandwidth | ρ | rank-1 null cap |
-|---|---|---|
-| 4.1 MHz | 0.989 | −24.4 dB |
-| 16.4 MHz | 0.804 | **−11.9 dB** |
+The same property cuts the other way, and it belongs in your datasheet: **a planar CRPA provides no spatial multipath rejection for the authentic signals either.** It cannot separate a satellite at +θ from its own ground reflection. That job stays with the receiver's code and carrier multipath mitigation, or needs a non-planar array.
 
-The 16 MHz figure is 12 dB *worse* than what the estimator itself achieves, so it — not the estimator — would set system performance. **This is the one limit in the whole design that gets worse as you improve the front end**, which is the direction every other consideration pushes you. It is a genuine architectural fork, developed in Task 3 and Task 5:
+**What actually consumes a degree of freedom** is a second arrival at a different **azimuth** — a reflection off a building, vehicle or mast, a second spoofing transmitter, or an accompanying jammer (and jam-then-spoof is a common pattern, because forcing reacquisition is how you get a receiver to accept counterfeit signals quickly). Measured coherence at 90° of azimuth separation is 0.010, i.e. essentially orthogonal, and there the spoofing subspace genuinely is rank 2.
 
-1. narrow the processing bandwidth toward the C/A main lobe, at the cost of code-tracking resolution;
-2. spend a spatial degree of freedom on a rank-2 null — which a 3-element array does not have to spare (Task 1, §2);
-3. go to **space-time adaptive processing**, where per-element tapped delay lines null the delayed replica with *taps* instead of with spatial degrees of freedom. This is what production wideband anti-jam CRPAs do, and this measurement is the reason why.
+Measured total spoof residual (direct + second arrival), 4-element Y array, second arrival at −6 dB, 5 ms dwell:
 
-`asp_scenario.m` models it; `asp_detect.m` estimates the rank via MDL; `asp_weights('project', Y, h)` takes a Y of any rank; `studies/study_multipath.m` measures the effect against the closed-form cap.
+| second arrival | coherence | rank-1 | rank-2 |
+|---|---|---|---|
+| none | — | −28.0 dB | −30.9 dB |
+| ground bounce (mirror elevation) | **1.0000** | **−33.8 dB** | −36.1 dB |
+| building, 60° azimuth | 0.289 | **−5.2 dB** | −15.0 dB |
+| building, 90° azimuth | 0.027 | −11.5 dB | **−6.5 dB** |
+| building, 180° azimuth | 0.379 | −8.2 dB | −17.8 dB |
 
-*A negative result worth recording:* I expected the **post-correlation** covariance to reveal the bounce through its λ₁/λ₂ ratio. It does not — measured 4103 without a bounce and 9189 with one, i.e. no drop at all. The reason is the same coherence: at 0.02 chips the despread snapshot sees one composite vector **b** + α**b**ₘ, not two. Detecting the bounce requires *delay* resolution — extra correlator taps or wider bandwidth — and its effect on nulling is a wideband effect that only appears across the band.
+An azimuthally separated reflector is expensive: the rank-1 residual collapses from −28 dB to −5 dB, because the second arrival is simply not nulled and then dominates the total.
+
+**But rank 2 is not automatically the answer, and the 90° row shows why.** A second arrival 6 dB down raises the second whitened eigenvalue only ~0.06 above the noise floor in a 5 ms dwell (measured spectrum 1.50 / 0.94 / 0.89 / 0.67). The resulting eigenvector carries roughly 26° of error, so nulling it steers a null at a direction that is largely noise — and the result is *worse* than leaving it alone. **The rank decision must be driven by resolvability, via an MDL test on the eigenvalues, never by prior knowledge that a second source exists.** `asp_detect` does this; the study deliberately forces a fixed rank so the failure is visible. This is also why the MDL decision belongs in software (Task 3, §8), where the hysteresis policy can be tuned against real threats.
+
+A second correction, on the wideband question. I initially derived the coherence loss as sinc(B·Δt) with B the *sampling* bandwidth, which predicted a catastrophic −12 dB cap at 16 MHz. That is wrong: the relevant decorrelation is set by the **signal** bandwidth (1.023 MHz, hence a 977 ns correlation width), so ρ = 1 − |Δt|/T_chip ≈ 0.98 at 20 ns regardless of sample rate. Measured residuals at 4.092 MHz and 16.368 MHz agree to ~1 dB, confirming it. **Widening the ADC does not make multipath worse.**
+
+`asp_scenario.m` models both cases; `asp_detect.m` estimates the rank via MDL; `asp_weights('project', Y, h)` takes a Y of any rank; `studies/study_multipath.m` measures them side by side.
+
+*A further negative result:* I expected the **post-correlation** covariance to reveal a second arrival through its λ₁/λ₂ ratio. For the ground bounce it does not — measured 4103 without and 9189 with, i.e. no drop. Same reason: at 0.02 chips the despread snapshot sees one composite vector, not two. Detecting an unresolved reflection requires *delay* resolution, meaning extra correlator taps or wider bandwidth.
 
 **M4. The null-depth metric is not a property of the beamformer.**
 
