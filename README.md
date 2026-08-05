@@ -10,10 +10,15 @@ analysis behind the design decisions.
 
 ---
 
+> **The code is on the branch `cursor/gnss-antispoof-array-redesign-4a0a`, not on `main`.**
+> `git fetch origin && git checkout cursor/gnss-antispoof-array-redesign-4a0a`
+> Then see [`docs/07-using-the-code.md`](docs/07-using-the-code.md) to run it.
+
 ## Documents
 
 | | |
 |---|---|
+| [`docs/07-using-the-code.md`](docs/07-using-the-code.md) | **Start here** — how to get, run and use the model |
 | [`docs/00-executive-summary.md`](docs/00-executive-summary.md) | The findings and recommendations in one place |
 | [`docs/01-array-architecture.md`](docs/01-array-architecture.md) | **Task 1** — 3 vs 4 antennas, geometry, DOF, measured evidence |
 | [`docs/02-matlab-review-and-redesign.md`](docs/02-matlab-review-and-redesign.md) | **Task 2** — review of the original code and the redesign |

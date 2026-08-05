@@ -1,0 +1,9 @@
+# Octave/MATLAB session state
+octave-workspace
+*.asv
+*.mat
+slprj/
+
+# Generated RTL co-simulation vectors
+vectors/
+*.mem
