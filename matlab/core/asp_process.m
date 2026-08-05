@@ -24,10 +24,15 @@ function out = asp_process(scn, varargin)
 %      samples used for the estimate.  That is not implementable and it
 %      flatters the result: it removes the estimator's transient entirely
 %      and hides the interaction between weight-update rate and platform
-%      dynamics.  On a rotating platform the weight age is a first-order
-%      effect - at 100 deg/s and a 1 ms dwell the signature rotates 0.1 deg
-%      between estimate and use, capping the null at about -42 dB; at
-%      400 deg/s the cap is about -30 dB.
+%      dynamics.  Weight age is a first-order effect on a rotating platform.
+%      With a maximum baseline D = 0.82 lambda, a rotation of dtheta between
+%      estimate and use leaves a residual phase 2*pi*(D/lambda)*dtheta, so
+%      the null is capped near 20*log10(2*pi*(D/lambda)*dtheta/sqrt(3)):
+%      about -46 dB at 100 deg/s, -34 dB at 400 deg/s and -26 dB at
+%      1000 deg/s for a 1 ms dwell.  Comfortably below the estimator's own
+%      -24 dB accuracy up to a few hundred deg/s, which is the useful
+%      conclusion: for this design, dwell length is set by estimator
+%      statistics, not by platform dynamics, until roughly 1000 deg/s.
 %
 %   2. GATING.  The detector decides whether to null at all, and with what
 %      rank.  Without it, the system attacks its own satellites whenever the

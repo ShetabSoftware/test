@@ -75,15 +75,36 @@ cfg.spoofAzEl     = [45 15];  % [azimuth elevation] deg.  A terrestrial
                               % in the paper's simulation.
 cfg.elevationMaskDeg = 5;
 
-% Specular ground bounce of the spoofer.  A ground-based spoofer at 100 m
-% range and 2 m antenna height produces a reflection only ~10-30 ns later
-% with -3 to -10 dB relative amplitude.  It arrives from a DIFFERENT
-% direction, so the spoofing subspace is rank 2, not rank 1.  The paper
-% models rank 1 only.
+% Second coherent arrival from the spoofer (a reflection off a building,
+% vehicle or structure).  This is what makes the spoofing subspace rank 2.
+%
+% IMPORTANT AND NON-OBVIOUS: a SPECULAR GROUND BOUNCE IS NOT SUCH A CASE.
+% For a planar array with every element at z = 0, the response depends only
+% on the direction cosines (cos(el)cos(az), cos(el)sin(az)), and cos is
+% even, so elevation +theta and -theta produce an IDENTICAL steering vector.
+% Measured coherence between (az 45, el +15) and (az 45, el -15) is
+% 1.000000.  A specular ground reflection arrives at exactly the mirror
+% elevation and the same azimuth, so it is AUTOMATICALLY CO-NULLED by the
+% same rank-one projector that removes the direct path.  No extra degree of
+% freedom is needed and no wideband penalty appears, because the two
+% arrivals share one steering vector at every frequency.
+%
+% This is a real and favourable property of the planar geometry, and it
+% cuts the other way too: the array cannot spatially separate a satellite
+% at +theta from its own ground reflection either, so a planar CRPA gives
+% you no multipath rejection against ground bounce of the AUTHENTIC
+% signals.  Rejecting that needs a vertical baseline (a non-planar array)
+% or the receiver's own code/carrier multipath mitigation.
+%
+% The rank-2 cases that DO consume a degree of freedom are arrivals at a
+% different AZIMUTH: a reflector off to one side, a second spoofer, or an
+% accompanying jammer.  The default below is a building reflection at
+% azimuth 135 deg, which is essentially orthogonal to the direct path
+% (measured coherence 0.010).
 cfg.spoofMultipath.enable   = false;
 cfg.spoofMultipath.relDB    = -6;
-cfg.spoofMultipath.delaySec = 20e-9;
-cfg.spoofMultipath.azEl     = [45 -12];   % negative elevation = ground bounce
+cfg.spoofMultipath.delaySec = 60e-9;      % ~18 m of excess path
+cfg.spoofMultipath.azEl     = [135 20];
 
 % ---------------------------------------------------------------- Front end
 cfg.fe.gainMismatchDB     = 0.5;   % per-channel amplitude mismatch, +/- dB
@@ -101,10 +122,15 @@ cfg.fe.commonAGC          = true;  % MANDATORY in hardware; false models the
 % ---------------------------------------------------------------- Estimator
 cfg.est.coherentMs      = 1;     % covariance accumulation length [ms]
 cfg.est.jacobiSweeps    = 6;     % FIXED sweep count => deterministic latency
-cfg.est.detectThreshold = 1.12;  % lambda_1 / lambda_N decision threshold
 cfg.est.maxNullRank     = 2;     % max number of spatial nulls to place
 cfg.est.diagonalLoadDB  = -20;   % MVDR diagonal loading, relative to trace/N
-cfg.est.mode            = 'evd'; % 'evd' | 'paper' | 'gamma'
+cfg.est.mode            = 'evd'; % 'evd' | 'paper' | 'gamma' | 'column'
+cfg.est.pfa             = 1e-3;  % target false-alarm probability
+% cfg.est.detectThreshold is DERIVED below, not hard-coded.  It depends on
+% N, on the dwell length AND on fs (because the authentic per-sample SNR is
+% (C/N0)/fs), so any constant written here would be silently wrong the
+% moment one of those changed.  See analysis/asp_detect_threshold.m.
+cfg.est.detectThreshold = [];
 
 % ---------------------------------------------------------------- Numerics
 cfg.fx = asp_fx_plan(cfg);
@@ -134,6 +160,13 @@ cfg.spoofSnrSample = cfg.authSnrSample * 10^(cfg.saprDB/10);
 
 % Re-derive the fixed-point plan if the user overrode anything it depends on.
 cfg.fx = asp_fx_plan(cfg);
+
+% Calibrate the detector threshold against a realistic H0 (a clean sky with
+% the authentic constellation present), unless the caller supplied one.
+if isempty(cfg.est.detectThreshold)
+    [cfg.est.detectThreshold, cfg.est.detectThresholdInfo] = ...
+        asp_detect_threshold(cfg, cfg.est.pfa, 200);
+end
 
 end
 

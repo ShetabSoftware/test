@@ -138,7 +138,7 @@ r.GfixMeanDB   = 10*log10(mean(gFix));
 r.GmaxMeanDB   = 10*log10(mean(gMax));
 r.GmaxTheoryDB = 10*log10(max(n - rankNull, eps));
 r.pBelowUnity  = mean(gMax < 1);
-r.pBelowUnityTheory = (1/n)^(n-rankNull);
+r.pBelowUnityTheory = asp_projection_outage(n, rankNull, 1);
 r.pFixDrop6    = mean(10*log10(dGfix) < -6);
 r.spareDOF     = n - 1 - rankNull;
 
@@ -168,9 +168,14 @@ end
 
 for rankNull = [1 2]
     if rankNull == 1
-        fprintf('\n--- Rank-1 null: single point spoofer, no ground bounce ---\n');
+        fprintf('\n--- Rank-1 null: single point spoofer ---\n');
     else
-        fprintf('\n--- Rank-2 null: spoofer + specular ground bounce at -6 dB ---\n');
+        fprintf(['\n--- Rank-2 null: spoofer + a second coherent arrival at a\n' ...
+                 '    DIFFERENT AZIMUTH (building reflection / second emitter / jammer),\n' ...
+                 '    -6 dB.  Note a specular GROUND bounce is NOT such a case: it\n' ...
+                 '    arrives at the mirror elevation, which a planar array cannot\n' ...
+                 '    distinguish from the direct path, so it is co-nulled for free.\n' ...
+                 '    See studies/study_multipath.m ---\n']);
     end
     fprintf('%-8s %3s  %6s %8s  %7s %7s %7s  %8s %8s %6s\n', ...
         'geom','N','rho','null dB','Gfix','Gmax','theory', ...

@@ -30,8 +30,17 @@ function [xq, agc] = asp_agc_adc(x, cfg, agc)
 if nargin < 3 || isempty(agc)
     agc.gain      = 1;
     agc.stepDB    = 0.5;      % AD9361 gain table granularity, approx.
-    agc.maxRateDB = 3;        % max change per block
+    agc.maxRateDB = 3;        % max change per block once acquired
     agc.changed   = false;
+    % Fast initial acquisition.  Real AGC hardware measures wideband power
+    % and jumps straight to the right gain index on the first update, then
+    % rate-limits afterwards.  Ramping from an arbitrary initial gain at
+    % 3 dB per dwell would leave the first several dwells clipped, and a
+    % clipped dwell is not merely noisy - clipping is a nonlinearity that
+    % destroys the rank-one structure of the interference and makes it
+    % unnullable.  Those dwells then get correctly invalidated, and the
+    % system spends its first tens of milliseconds with no protection.
+    agc.acquire   = true;
 end
 
 fmt      = cfg.fx.adc;
@@ -41,9 +50,13 @@ targetRms = fmt.maxval * 10^(-cfg.fx.agcBackoffDB/20);
 if cfg.fe.commonAGC
     curRms = sqrt(mean(abs(x(:)).^2)/2);
     desired = targetRms / max(curRms, eps);
-    agc.gain = applyGainLimits(agc.gain, desired, agc);
+    if agc.acquire
+        agc.gain = desired;
+    else
+        agc.gain = applyGainLimits(agc.gain, desired, agc);
+    end
     gains = repmat(agc.gain, size(x,1), 1);
-    agc.changed = abs(20*log10(desired/agc.gain)) > agc.stepDB;
+    agc.changed = ~agc.acquire && abs(20*log10(desired/agc.gain)) > agc.stepDB;
 else
     curRms = sqrt(mean(abs(x).^2, 2)/2);
     desired = targetRms ./ max(curRms, eps);
@@ -51,11 +64,16 @@ else
         agc.gain = repmat(agc.gain, size(x,1), 1);
     end
     for i = 1:size(x,1)
-        agc.gain(i) = applyGainLimits(agc.gain(i), desired(i), agc);
+        if agc.acquire
+            agc.gain(i) = desired(i);
+        else
+            agc.gain(i) = applyGainLimits(agc.gain(i), desired(i), agc);
+        end
     end
     gains = agc.gain;
     agc.changed = true;
 end
+agc.acquire = false;
 
 xg = bsxfun(@times, gains(:), x);
 

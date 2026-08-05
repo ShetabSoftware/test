@@ -109,20 +109,33 @@ end
 
 d1 = mn(res.nullPost(1,:));
 dN = mn(res.nullPost(end,:));
-fprintf('\nStage 2 improves %.1f dB from %d to %d ms; 1/sqrt(K) predicts %.1f dB.\n', ...
+fprintf('\nStage 2 improves only %.1f dB from %d to %d ms, where 1/sqrt(K) predicts %.1f dB.\n', ...
     d1-dN, res.epochs(1), res.epochs(end), 10*log10(res.epochs(end)/res.epochs(1)));
-fprintf('Stage 2 therefore remains NOISE limited over this range, whereas stage 1\n');
-fprintf('is bias limited and stops improving after a few milliseconds.  That is the\n');
-fprintf('whole argument for the two-stage split: they fail for different reasons,\n');
-fprintf('so combining them is not redundancy, it is coverage.\n');
+fprintf('So stage 2 is ALSO bias limited - but by a different and much lower floor.\n');
+fprintf('Measured across a 20 dB sweep of spoofing power, that floor obeys\n\n');
+fprintf('        stage-2 null depth  =  -(SAPR + 27.0) dB\n\n');
+fprintf('to better than 0.1 dB.  The 27.0 is the C/A cross-correlation bound of\n');
+fprintf('23.9 dB (65/1023) plus ~3.1 dB, since 65/1023 is a worst-case peak and the\n');
+fprintf('RMS over random code phases is lower.  The 1 dB-per-dB slope is the\n');
+fprintf('authentic contribution falling relative to the spoofer.\n');
+fprintf('\nHONEST ACCOUNTING: at 5.5 dB SAPR stage 2 is worth about 6 dB of extra\n');
+fprintf('null depth over stage 1''s saturation point, not 20 dB.  Its real value is\n');
+fprintf('what stage 1 cannot do at ANY dwell length: attribute spoofing to\n');
+fprintf('INDIVIDUAL PRNs, so the receiver can exclude specific measurements instead\n');
+fprintf('of discarding the whole solution; and compute per-satellite combining\n');
+fprintf('weights without the 1 kHz Doppler aliasing of the paper''s equation (20).\n');
 
 fprintf('\nRank indicator lambda_1/lambda_2 of the post-correlation covariance:\n');
-fprintf('   no ground bounce : %8.1f  (rank 1, as expected)\n', ...
+fprintf('   no ground bounce  : %8.1f\n', ...
     median(res.rankRatioNoMp(~isnan(res.rankRatioNoMp))));
-fprintf('   with ground bounce: %8.1f  (second eigenvalue lifts -> rank 2)\n', ...
+fprintf('   with ground bounce: %8.1f\n', ...
     median(res.rankRatioMp(~isnan(res.rankRatioMp))));
-fprintf('The system can therefore DISCOVER that a rank-2 null is required rather\n');
-fprintf('than being configured for it, which matters because the ground bounce\n');
-fprintf('geometry changes as the platform moves.\n\n');
+fprintf('NEGATIVE RESULT: the ratio does NOT drop, so this does not detect the\n');
+fprintf('bounce.  The reason is physical and important - 20 ns is 0.02 C/A chips,\n');
+fprintf('so the bounce is unresolved and adds COHERENTLY into the same correlator\n');
+fprintf('cell.  The despread snapshot sees one composite vector b + alpha*bm, not\n');
+fprintf('two.  Detecting the bounce needs delay resolution (extra correlator taps\n');
+fprintf('or wider bandwidth), and its effect on nulling is a WIDEBAND effect that\n');
+fprintf('only appears across the band - see studies/study_multipath.m.\n\n');
 
 end
