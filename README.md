@@ -19,6 +19,7 @@ analysis behind the design decisions.
 | | |
 |---|---|
 | [`docs/07-using-the-code.md`](docs/07-using-the-code.md) | **Start here** — how to get, run and use the model |
+| [`docs/08-followup-decisions.md`](docs/08-followup-decisions.md) | 12-bit DAC format, LO offset vs DC notch, receiver scope, golden model |
 | [`docs/00-executive-summary.md`](docs/00-executive-summary.md) | The findings and recommendations in one place |
 | [`docs/01-array-architecture.md`](docs/01-array-architecture.md) | **Task 1** — 3 vs 4 antennas, geometry, DOF, measured evidence |
 | [`docs/02-matlab-review-and-redesign.md`](docs/02-matlab-review-and-redesign.md) | **Task 2** — review of the original code and the redesign |
@@ -78,7 +79,22 @@ matlab/
   verify/    regression tests
   studies/   the Monte Carlo evidence behind every number in the docs
   export/    bit-exact RTL co-simulation vectors
+  golden/    asp_golden_model.m — bit-accurate VHDL reference, one file
 ```
+
+### Golden model for VHDL verification
+
+```matlab
+G = asp_golden_model('durationMs',6, 'outDir','./gold_vectors');
+```
+
+Every signal is an exact integer — the raw two's-complement register contents
+of the corresponding VHDL signal — so MATLAB and `std_logic_vector` values are
+diffed with **no tolerance**. One local function per VHDL entity, fixed
+iteration counts everywhere, no divisions or transcendentals on the datapath.
+Writes per-stage vectors plus a `MANIFEST.txt` carrying every constant the
+VHDL package needs. Measured: bit-identical across runs, and 0.09 dB of null
+depth lost against double precision.
 
 ### Design rules the reference obeys
 
