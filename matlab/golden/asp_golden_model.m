@@ -137,8 +137,41 @@ C.CORDIC_INV_K = 39797;       % round(0.607252935 * 2^16), gain compensation
 % ---- algorithm ----
 C.JACOBI_SWEEPS = 6;          % FIXED -> deterministic latency
 C.MAX_RANK      = 2;
-C.DET_NUM       = 1123;       % detector threshold as a rational: 1123/1024
-C.DET_DEN       = 1024;       %   = 1.0967, avoids a divider (see stage7)
+% Detector threshold as a rational, so stage 7 needs no divider.
+%
+% CALIBRATED AGAINST THE REALISTIC H0, NOT AGAINST WHITE NOISE.  This
+% distinction is the whole game and getting it wrong is silent:
+%   * white noise, K = 16368            -> statistic median 1.024, 99% 1.038
+%   * after the 63-tap shaping FIR      -> median 1.053, 99% 1.094
+%   * plus the authentic constellation  -> mean 1.114, sigma 0.026, max 1.186
+% The FIR narrows the noise bandwidth to about a seventh of the sample
+% rate, so consecutive samples are correlated and the covariance has far
+% fewer effective degrees of freedom than K suggests; and nine authentic
+% satellites in a four-element array are themselves a structured, non-white
+% term.  H0 is "noise + constellation", never "white noise".  The earlier
+% value 1123/1024 = 1.0967 was calibrated on white noise and therefore sat
+% BELOW the H0 median: measured 58-69% false alarm on a clean scene, i.e.
+% the block installed to prevent unconditional nulling was itself nulling
+% an authentic satellite most of the time.
+%
+% 1280/1024 = 5/4 exactly.  Measured over 320 dwells and 80 independent
+% constellations: H0 mean 1.1153, sigma 0.0288, worst dwell 1.2158, and
+% 0/320 false alarms.  It still detects every spoofer at SAPR >= 0 dB
+% (measured H1 minimum 1.264).  The ratio being 5/4 also removes both
+% multipliers from stage 7: the test becomes lam1*3*4 > 5*sum(tail), and
+% 4x and 5x are shifts and one add.
+%
+% The margin is deliberately asymmetric and it is worth being honest about
+% it: the threshold clears the worst observed H0 dwell by only 2.8%, but
+% clears the weakest H1 case by 1.1%.  Raising it to 21/16 = 1.3125 (also
+% multiplier-free) would buy H0 margin and LOSE detection at SAPR 0 dB.
+% 5/4 is the sensitivity-favouring choice, which is right here because a
+% single-dwell false alarm is not the failure mode that matters: the soft
+% processor commits to a null only on an M-of-N vote at 1 kHz, so an
+% isolated tail excursion is absorbed.  Do not remove that hysteresis and
+% keep this threshold.
+C.DET_NUM       = 1280;
+C.DET_DEN       = 1024;
 % Second-null threshold, deliberately much stricter than the first.  A
 % second arrival only 6 dB down lifts lambda_2 by ~0.06 above the noise
 % floor in a 1 ms dwell, which yields an eigenvector with tens of degrees
@@ -146,6 +179,11 @@ C.DET_DEN       = 1024;       %   = 1.0967, avoids a divider (see stage7)
 % Rank 2 is therefore gated on the second eigenvalue being genuinely
 % resolvable, and RANK2_ENABLE lets the soft processor withhold it entirely
 % while the MDL test and its hysteresis run at 1 kHz.
+% Measured against the same realistic H0 as DET_NUM: the rank-2 statistic
+% has mean 1.080 sigma 0.020 with no spoofer, and mean 1.100 sigma 0.028
+% when a rank-ONE spoofer is present (the case that must not be promoted to
+% rank 2).  1331/1024 = 1.30 clears both by more than 5 sigma and measured
+% 0% spurious rank 2 in 80 dwells, so it is left alone.
 C.DET_NUM2      = 1331;       % 1.30
 C.RANK2_ENABLE  = false;
 
@@ -649,7 +687,9 @@ function d = stage7_detect(lam, C)
 %
 %  Implemented WITHOUT A DIVIDER by cross-multiplying:
 %      lam1/mean > THR_NUM/THR_DEN   <=>   lam1*(N-1)*THR_DEN > THR_NUM*sum_tail
-%  which is two multiplies and a compare.
+%  and with THR_NUM/THR_DEN = 1280/1024 = 5/4 both multiplies degenerate to
+%  shifts and one add: lam1*3*4 > 5*sum_tail, i.e. (x<<2) and (x<<2)+x.
+%  No DSP48, no divider, one compare.
 %
 %  This block is the one the published method does not have.  Without it
 %  the system nulls unconditionally and, with no spoofer present, steers a
