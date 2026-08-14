@@ -86,7 +86,14 @@ matlab/
 
 ```matlab
 G = asp_golden_model('durationMs',6, 'outDir','./gold_vectors');
+G = asp_golden_model('spoof',false);                  % clean run, no spoofer
+G = asp_golden_model('adc', myAdcMatrix);             % drive from your own capture
+G = asp_golden_model('adcFile','capture/adc.txt');    % ...or from a vector file
 ```
+
+Name,value pairs only; unknown names are rejected rather than ignored. Your own
+data is a `4 × Nsamp` complex matrix of **exact integers** in s12.11 at
+32.736 MHz. See `docs/07-using-the-code.md` §7.1.
 
 Every signal is an exact integer — the raw two's-complement register contents
 of the corresponding VHDL signal — so MATLAB and `std_logic_vector` values are

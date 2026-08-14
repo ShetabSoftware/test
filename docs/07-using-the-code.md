@@ -323,6 +323,120 @@ that produced it. It depends on N, on dwell length **and on fs**, because the
 authentic per-sample SNR is (C/N₀)/fs. Change any of those and recalibrate — a
 threshold carried across configurations is a latent bug that only appears later.
 
+### 7.1 Setting the input of the golden model
+
+`asp_golden_model` takes **name,value pairs only** — there is no positional
+form. Unknown names are rejected rather than ignored, because a typo that
+silently falls back to the default is the worst way for a verification run to
+be wrong.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `durationMs` | `2` | length of the *generated* stimulus, ignored if you supply data |
+| `spoof` | `true` | include the spoofer in the generated stimulus |
+| `saprDB` | `5.5` | spoofer-to-authentic power ratio, dB |
+| `cn0` | `45` | authentic C/N₀, dB-Hz |
+| `seed` | `20120926` | stimulus RNG seed; fixed seed ⇒ repeatable run |
+| `adc` | `[]` | **your own** `4 × Nsamp` complex integer matrix |
+| `adcFile` | `''` | the same thing read back from a vector file |
+| `outDir` | `./gold_vectors` | where per-stage vectors and `MANIFEST.txt` are written |
+| `dump` | `true` | write the vectors at all |
+| `verbose` | `true` | banner, per-dwell log, summary |
+
+Three ways to set the input, in priority order — `adc` beats `adcFile` beats
+the generator:
+
+```matlab
+asp_startup;                                    % 'golden' is on the path
+
+% 1. generated scenario (the default)
+G = asp_golden_model('durationMs',6, 'outDir','./gold_vectors');
+
+% 2. clean run, no spoofer — this is how you check the false-alarm rate
+G0 = asp_golden_model('durationMs',6, 'spoof',false);
+
+% 2b. sweep the spoofer down to find where detection gives out
+G3 = asp_golden_model('durationMs',6, 'saprDB',0);
+
+% 3. your own capture, straight from the workspace
+G = asp_golden_model('adc', myAdcMatrix);
+
+% 4. your own capture, from a file
+G = asp_golden_model('adcFile','capture/s00_adc_out.txt');
+```
+
+**Format of `adc`.** `4 × Nsamp` complex, at `FS_ADC` = 32.736 MHz, holding
+**exact integers** in s12.11 — raw AD9361 register contents in [−2048, 2047],
+*not* scaled reals. Real part is I, imaginary part is Q. The model checks this
+and errors out rather than silently rounding. Supply at least `2 × 16368 =
+32736` samples per dwell you want: the DDC and halfband decimate by 2, so 1 ms
+of processing consumes 2 ms worth of ADC-rate samples.
+
+**Format of `adcFile`.** Signed decimal integers, one per line, interleaved
+I,Q, column-major over the `4 × Nsamp` matrix — ch0..ch3 for sample 0, then
+ch0..ch3 for sample 1. `# dwell N` separator lines are ignored. This is exactly
+the format the model itself writes, so a run round-trips:
+
+```matlab
+G1 = asp_golden_model('durationMs',3, 'outDir','/tmp/gvA');
+G2 = asp_golden_model('adcFile','/tmp/gvA/s00_adc_out.txt', 'outDir','/tmp/gvB');
+isequal(G2.dac, G1.dac)     % true — bit-exact, every stage
+```
+
+**The self-check is skipped when you supply data.** `G.check` compares the
+measured null depth against ground truth, and a capture carries none, so the
+field is simply absent. Test for it with `isfield(G,'check')` rather than
+assuming it is there.
+
+### 7.2 Run the clean case first — it is the test that finds threshold bugs
+
+`spoof=false` is the single most valuable invocation in the list, because a
+spoofing detector fails *silently* in the direction that matters. A missed
+detection is visible in the null depth; a false alarm is not visible at all
+until you look for it, and its consequence is that the array steers a null into
+an authentic satellite.
+
+This is not hypothetical. Running `spoof=false` on this model is what caught a
+miscalibrated threshold: `DET_NUM` had been set from the white-noise
+distribution of λ₁/mean(λ₂..λ_N), and the realistic distribution is much wider.
+
+| H0 assumption | median | 99th pct |
+|---|---|---|
+| white noise, K = 16368 | 1.024 | 1.038 |
+| after the 63-tap shaping FIR | 1.053 | 1.094 |
+| **+ the authentic constellation** (the real H0) | **1.114** | **1.186** |
+
+Two effects, both absent from a white-noise calibration. The shaping FIR
+narrows the noise bandwidth to about a seventh of the sample rate, so
+consecutive samples are correlated and the covariance has far fewer effective
+degrees of freedom than K suggests. And nine authentic satellites in a
+four-element array are themselves a structured, non-white term — **H0 is "noise
+plus constellation", never "white noise"**.
+
+The old threshold 1123/1024 = 1.0967 sat *below* the H0 median and measured a
+58–69% false alarm rate on a clean sky. It is now 1280/1024 = 5/4: measured over
+320 dwells and 80 independent constellations, H0 mean 1.1153, σ 0.0288, worst
+dwell 1.2158, **0/320 false alarms**, and no missed detections. Detection still
+holds down to **SAPR = 0 dB**; below that the pre-correlation stage is out of
+headroom, which is the expected place for the post-correlation stage to take
+over.
+
+The 5/4 ratio is also free in hardware — the stage-7 test becomes
+`lam1*3*4 > 5*sum(tail)`, two shifts and an add, so both multipliers disappear.
+
+Worth being explicit about the margin rather than quoting only the 0/320: the
+threshold clears the worst observed H0 dwell by 2.8% and the weakest H1 case by
+1.1%. Raising it to 21/16 = 1.3125 (also multiplier-free) would buy H0 margin
+and **lose** detection at SAPR 0 dB. 5/4 is the sensitivity-favouring choice,
+which is the right trade here because a single-dwell false alarm is not the
+failure mode that matters — the soft processor commits to a null only on an
+M-of-N vote at 1 kHz, so an isolated tail excursion is absorbed. **Do not remove
+that hysteresis and keep this threshold.**
+
+Whenever you change `fs`, the FIR, the dwell length or the number of satellites,
+**re-run `spoof=false` and re-derive the threshold.** A threshold carried across
+configurations is a latent bug that only shows up as unexplained nulling.
+
 ---
 
 ## 8. Gotchas

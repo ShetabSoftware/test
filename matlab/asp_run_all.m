@@ -22,7 +22,8 @@ fprintf('#  regression suite, mode = %-32s#\n', mode);
 fprintf('#############################################################\n\n');
 
 tests = {@test_ca_code, @test_evd_herm, @test_fixedpoint, ...
-         @test_wishart_draw, @test_cov_model, @test_pipeline};
+         @test_wishart_draw, @test_cov_model, @test_pipeline, ...
+         @test_golden_model};
 
 for k = 1:numel(tests)
     try
