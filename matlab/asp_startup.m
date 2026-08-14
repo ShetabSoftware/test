@@ -9,7 +9,7 @@ function asp_startup()
 
 here = fileparts(mfilename('fullpath'));
 
-subdirs = {'config','fx','model','core','analysis','verify','studies','export'};
+subdirs = {'config','fx','model','core','analysis','verify','studies','export','golden'};
 for k = 1:numel(subdirs)
     p = fullfile(here, subdirs{k});
     if exist(p, 'dir')
