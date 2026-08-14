@@ -53,13 +53,38 @@ function G = asp_golden_model(varargin)
 % =====================================================================
 %  0. CONFIGURATION - the single place any number is defined
 % =====================================================================
-opt.durationMs = 2;
+opt.durationMs = 2;          % length of the generated stimulus [ms]
 opt.outDir     = fullfile(pwd,'gold_vectors');
-opt.spoof      = true;
-opt.seed       = 20120926;
-opt.dump       = true;
-opt.verbose    = true;
-for k = 1:2:numel(varargin), opt.(varargin{k}) = varargin{k+1}; end
+opt.spoof      = true;       % include the spoofer in the generated stimulus
+opt.seed       = 20120926;   % stimulus RNG seed; fixed seed -> repeatable run
+opt.dump       = true;       % write per-stage vectors to outDir
+opt.verbose    = true;       % print the banner, per-dwell log and summary
+opt.saprDB     = 5.5;        % spoofer-to-authentic power ratio [dB]
+opt.cn0        = 45;         % authentic C/N0 [dB-Hz]
+opt.adc        = [];         % NANT x Nsamp integer matrix: drive from YOUR data
+opt.adcFile    = '';         % or the same thing read from a vector file
+
+% Reject unknown names rather than silently accepting them.  A typo in an
+% option name is otherwise invisible: the model runs, prints a plausible
+% result, and quietly used the default - which is the worst way for a
+% verification run to be wrong.
+known = fieldnames(opt);
+if mod(numel(varargin),2) ~= 0
+    error('asp_golden_model:pairs','Arguments must be name,value pairs.');
+end
+for k = 1:2:numel(varargin)
+    nm = varargin{k};
+    if ~ischar(nm) && ~(exist('isstring','builtin') && isstring(nm))
+        error('asp_golden_model:name','Option %d is not a name.', (k+1)/2);
+    end
+    nm = char(nm);
+    hit = known(strcmpi(known, nm));
+    if isempty(hit)
+        error('asp_golden_model:unknownOption', ...
+            'Unknown option "%s".  Valid options: %s', nm, strjoin(known.', ', '));
+    end
+    opt.(hit{1}) = varargin{k+1};
+end
 
 C = struct();
 
@@ -132,16 +157,41 @@ C.DAC_AGC_HI     = 362;       %                  = TARGET*sqrt(2)
 if opt.dump && ~exist(opt.outDir,'dir'), mkdir(opt.outDir); end
 
 G = struct('C',C,'opt',opt);
-if opt.verbose, banner(C, opt); end
 
 % =====================================================================
 %  1. STIMULUS  -  12-bit AD9361 RX samples, 4 channels
 % =====================================================================
-% Not part of the VHDL.  Replace with a file read to drive the model from
-% captured hardware data:
-%     adc = readVectors(fullfile(opt.outDir,'s00_adc.txt'), C.NANT);
-[adc, truth] = genStimulus(C, opt);
+% Not part of the VHDL.  Three ways to set the input, in priority order:
+%   'adc'      an NANT x Nsamp matrix of integers you supply directly
+%   'adcFile'  the same thing read back from a vector file
+%   neither    the built-in scenario generator (default)
+% The first two carry no ground truth, so the self-check is skipped: there
+% is nothing to compare a measured null depth against.
+if ~isempty(opt.adc)
+    adc = opt.adc;   truth = [];   src = 'caller matrix';
+elseif ~isempty(opt.adcFile)
+    adc = readVectors(opt.adcFile, C.NANT);
+    truth = [];   src = opt.adcFile;
+else
+    [adc, truth] = genStimulus(C, opt);
+    if opt.spoof
+        src = sprintf('generated, spoof at SAPR %+.1f dB, C/N0 %g dB-Hz, seed=%d', ...
+            opt.saprDB, opt.cn0, opt.seed);
+    else
+        src = sprintf('generated, NO spoofer, C/N0 %g dB-Hz, seed=%d', opt.cn0, opt.seed);
+    end
+end
+if size(adc,1) ~= C.NANT
+    error('asp_golden_model:nAnt','Input must have %d rows (channels), got %d.', ...
+        C.NANT, size(adc,1));
+end
+if size(adc,2) < 2*C.K_DWELL
+    error('asp_golden_model:tooShort', ...
+        ['Input has %d samples; a single 1 ms dwell needs %d at FS_ADC ' ...
+         '(the DDC and halfband decimate by 2).'], size(adc,2), 2*C.K_DWELL);
+end
 assertWidth(adc, C.W_ADC, 'adc');
+if opt.verbose, banner(C, opt, adc, src); end
 dumpStage(opt, '00_adc', [], adc);
 G.adc = adc; G.truth = truth;
 
@@ -247,7 +297,9 @@ G.nDwell = nDwell;
 %  merely self-consistent.  A bit-exact model that computes the wrong
 %  thing is worse than no model, because it makes the VHDL wrong too.)
 % =====================================================================
-G.check = selfCheck(G, C);
+if ~isempty(truth)
+    G.check = selfCheck(G, C);
+end
 if opt.dump, writeManifest(opt, C, G); end
 if opt.verbose, summary(G, C, opt); end
 
@@ -1043,7 +1095,7 @@ Cd = Cd(:);
 
 N  = round(C.FS_ADC*opt.durationMs*1e-3);
 t  = (0:N-1)/C.FS_ADC;
-cn0 = 45; authSnr = 10^(cn0/10)/C.FS_ADC; spoofSnr = authSnr*10^(5.5/10);
+cn0 = opt.cn0; authSnr = 10^(cn0/10)/C.FS_ADC; spoofSnr = authSnr*10^(opt.saprDB/10);
 prns = [2 5 10 12 21 25 29 30 31];
 
 sig = zeros(C.NANT, N);
@@ -1126,6 +1178,31 @@ fprintf(fid,'%.0f\n', flatten(x));
 fclose(fid);
 end
 
+function x = readVectors(fn, nCh)
+%READVECTORS  Exact inverse of writeVec/flatten for complex channel data.
+%   Reads signed decimal integers, one per line, interleaved I,Q, laid out
+%   column-major over an nCh x Nsamp matrix - i.e. ch0..ch(n-1) for sample
+%   0, then ch0..ch(n-1) for sample 1.  "# dwell N" separators are ignored,
+%   so a per-dwell file reads back as one continuous stream.
+fid = fopen(fn, 'r');
+if fid < 0
+    error('asp_golden_model:noFile','Cannot open input vector file "%s".', fn);
+end
+c = textscan(fid, '%f', 'CommentStyle', '#');
+fclose(fid);
+v = c{1};
+if isempty(v)
+    error('asp_golden_model:emptyFile','Input vector file "%s" holds no values.', fn);
+end
+if mod(numel(v), 2*nCh) ~= 0
+    error('asp_golden_model:ragged', ...
+        ['Input file holds %d values, not a whole number of samples: ' ...
+         'expected a multiple of 2*%d (I,Q per channel).'], numel(v), nCh);
+end
+x = reshape(v(1:2:end) + 1i*v(2:2:end), nCh, []);
+end
+
+
 function v = flatten(x)
 %FLATTEN  Column-major; complex becomes interleaved I,Q.  ONE convention
 %   for every file the model emits.
@@ -1139,14 +1216,16 @@ else
 end
 end
 
-function banner(C, opt)
+function banner(C, opt, adc, src)
 fprintf('\n=====================================================================\n');
 fprintf(' ASP GOLDEN REFERENCE MODEL  (bit-accurate, integer datapath)\n');
 fprintf('=====================================================================\n');
 fprintf(' RX LO        %.6f MHz  (L1 + %.3f MHz = FS_ADC/16)\n', C.LO/1e6, C.LO_OFFSET/1e6);
 fprintf(' FS_ADC       %.6f MHz -> FS_WORK %.6f MHz (%d samples/ms)\n', ...
     C.FS_ADC/1e6, C.FS_WORK/1e6, C.K_DWELL);
-fprintf(' channels     %d,  dwell %d ms,  duration %g ms\n', C.NANT, 1, opt.durationMs);
+fprintf(' channels     %d,  dwell %d ms,  input %d samples = %g ms -> %d dwells\n', ...
+    C.NANT, 1, size(adc,2), 1e3*size(adc,2)/C.FS_ADC, floor(size(adc,2)/(2*C.K_DWELL)));
+fprintf(' input        %s\n', src);
 fprintf(' formats      ADC s%d.%d | data s%d.%d | cov s%d | wgt s%d.%d | DAC s%d.%d\n', ...
     C.W_ADC,C.F_ADC, C.W_DAT,C.F_DAT, C.W_ACC, C.W_WGT,C.F_WGT, C.W_DAC,C.F_DAC);
 fprintf('---------------------------------------------------------------------\n');
