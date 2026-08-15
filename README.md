@@ -78,9 +78,37 @@ matlab/
   analysis/  metrics, closed-form theory, covariance-domain scene model
   verify/    regression tests
   studies/   the Monte Carlo evidence behind every number in the docs
-  export/    bit-exact RTL co-simulation vectors
+  export/    bit-exact RTL co-simulation vectors, VHDL constant generator
   golden/    asp_golden_model.m — bit-accurate VHDL reference, one file
+rtl/
+  pkg/       fixed-point primitives; asp_coef_pkg.vhd is GENERATED
+  core/      the ten pipeline stages, one entity per stage
+  top/       datapath wiring, AXI4-Lite registers, PL top level
+  tb/        co-simulation testbenches, one per stage
+  sim/       run_sim.sh — regenerate vectors, analyse, run everything
+constraints/ asp_timing.xdc
 ```
+
+### Synthesisable VHDL for XC7Z020
+
+```bash
+./rtl/sim/run_sim.sh          # every stage, bit-exact against MATLAB
+```
+
+Ten pipeline stages, each co-simulated against the golden model's own dumped
+stage vectors with **no tolerance** — both sides are integers, so any difference
+is a bug rather than noise. Measured: 523,776 values through the mixer, 261,640
+through the FIR, 130,944 through the beamformer, and the 48-bit covariance,
+eigenvectors, eigenvalues, detector operands and weights all bit-identical.
+
+One clock domain at 130.944 MHz = 4 × FS_ADC = 8 × FS_WORK, so every rate change
+is a clock enable and there is no true CDC between the ADC pins and the DAC pins.
+Channel-serial datapath: the four antennas traverse the *same* logic, so they
+cannot acquire different group delays. ~85 DSP48 of 220, **zero BRAM**.
+
+See **`docs/09-vhdl-implementation.md`** for the PL/PS split, the IP core list
+with exact settings, the block design, and the two places the RTL necessarily
+differs from the model.
 
 ### Golden model for VHDL verification
 

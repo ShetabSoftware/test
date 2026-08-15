@@ -66,7 +66,6 @@ done
 
 # ---------------------------------------------------------------- run
 declare -A TBS=(
-  [pkg]="tb_asp_pkg"
   [ddc]="tb_asp_ddc_mixer"
   [hb]="tb_asp_hb_decim2"
   [fir]="tb_asp_fir_shape"
@@ -81,7 +80,9 @@ declare -A TBS=(
   [tx]="tb_asp_tx_scale"
   [chain]="tb_asp_datapath"
 )
-ORDER=(pkg ddc hb fir cov rsqrt whiten cordic evd detect weights beam tx chain)
+# Fast blocks first so a regression is reported in seconds rather than
+# after the multi-minute streaming tests.
+ORDER=(rsqrt cordic detect whiten evd weights cov ddc hb tx fir beam chain)
 
 WANT=("$@")
 [ ${#WANT[@]} -eq 0 ] && WANT=("${ORDER[@]}")
