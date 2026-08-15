@@ -9,23 +9,33 @@ integers, so any difference is a bug rather than noise.
 
 ## 1. Verification status
 
-Run `./rtl/sim/run_sim.sh`. Every number below is a measured result, not an
-intention.
+Run `./rtl/sim/run_sim.sh`. Every number below is a measured result from a clean
+build over 4 ms of the reference scenario, not an intention. **13 of 13
+testbenches pass; about 2.2 million values are bit-identical.**
 
 | Block | Stage | Values compared | Result |
 |---|---|---|---|
-| `asp_ddc_mixer` | 1 | 523,776 | bit-identical |
-| `asp_hb_decim2` | 2 | 261,888 | bit-identical |
-| `asp_fir_shape` | 3 | 261,640 | bit-identical |
-| `asp_cov_accum` | 4 | 64 (2 dwells, 48-bit) | bit-identical + Hermitian verified |
+| `asp_ddc_mixer` | 1 | 1,047,552 | bit-identical |
+| `asp_hb_decim2` | 2 | 400,000 | bit-identical |
+| `asp_fir_shape` | 3 | 523,528 | bit-identical |
+| `asp_cov_accum` | 4 | 128 (4 dwells, 48-bit) | bit-identical + Hermitian verified |
 | `asp_rsqrt` / `asp_isqrt` | — | 371 + 377 cases | bit-identical |
 | `asp_cordic` | — | 544 vectoring + 408 rotation | bit-identical |
-| `asp_whiten` | 5 | 64 | bit-identical, diagonal real |
-| `asp_jacobi_evd` | 6 | 72 (eigenvectors **and** eigenvalues) | bit-identical, trace preserved |
+| `asp_whiten` | 5 | 128 | bit-identical, diagonal real |
+| `asp_jacobi_evd` | 6 | 144 (eigenvectors **and** eigenvalues) | bit-identical, trace preserved |
 | `asp_detect` | 7 | 16 | bit-identical |
 | `asp_weight_calc` | 8 | 32 + rank-0 path | bit-identical |
 | `asp_beamformer` | 9 | 130,944 | bit-identical |
 | `asp_tx_scale` | 10 | 98,208 (dwell 2 onward) | bit-identical |
+| `asp_datapath` | 1–10 | 24 weights, from raw ADC samples | bit-identical, detector fired on every dwell |
+
+The last row is the one that matters most. `tb_asp_datapath` runs several million
+clocks from raw AD9361 samples and checks the **weight sequence** against the
+model. The weights are a function of every stage from the mixer through the EVD —
+mixer, halfband, FIR, covariance, whitening, reciprocal-sqrt, integer sqrt,
+CORDIC, 36 Jacobi rotations, the sort, the detector and the Gram-Schmidt
+projection. If any one of them drifted by a single LSB the eigenvector would
+rotate and the weights would not match.
 
 Two deviations from the model exist, both forced, both documented in the RTL
 where they bite:
