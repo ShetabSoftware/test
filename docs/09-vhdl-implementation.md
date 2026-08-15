@@ -541,3 +541,56 @@ starved by a userspace logger.
 - Decide whether the capture DMA path is built for production or only for bring-up.
 - The `set_clock_groups` constraint in `asp_timing.xdc` names `clk_fpga_0`; check
   that matches the PS clock name in the actual block design.
+
+---
+
+## 11. Per-module verification reference
+
+Behaviour, ports, formats and latency are in each file's header. What follows is
+the part that is easy to leave implicit: the **edge cases each module has to
+survive** and **how each one is actually tested**.
+
+Every module shares the same clock/reset contract: single `clk`, synchronous
+active-high `rst`, asserted asynchronously and released synchronously by the
+synchroniser in `asp_top`. Datapath pipeline registers are not reset; control
+state and valid pipelines are.
+
+| Module | Edge cases that matter | Verification |
+|---|---|---|
+| `asp_ddc_mixer` | NCO phase wrap at 16; all four TDM slots; a missing `s_valid` must repeat a sample rather than permute the antennas | `tb_asp_ddc_mixer`, 523,776 values; TDM channel order asserted every slot |
+| `asp_hb_decim2` | decimation **phase** — keeping odd instead of even samples still looks correct in a spectrum; zero history at reset must match the model's zero-padded convolution | `tb_asp_hb_decim2`, 261,888 values |
+| `asp_fir_shape` | the 4-on/4-off input burst from the decimator; FIFO overflow; the 31-sample warm-up discard | `tb_asp_fir_shape` drives the bursty pattern deliberately, asserts the overflow flag stayed low, and asserts a minimum comparison count so an early exit cannot look like a pass |
+| `asp_cov_accum` | dwell boundary (last sample must not be lost); accumulator width at peak input; Hermitian structure | `tb_asp_cov_accum` checks 48-bit values exactly **and** asserts symmetry, antisymmetry, real diagonal and non-negative diagonal on every dwell |
+| `asp_rsqrt` | powers of two and their neighbours, where the range reduction changes *k*; `a = 1`, where it shifts **left**; `a = 0`; the top of the range (2⁴⁰) that the weight stage produces | `tb_asp_rsqrt`, 371 cases, boundary values included explicitly rather than relying on random draws |
+| `asp_isqrt` | `a = 0`; perfect squares and the values either side | `tb_asp_rsqrt`, 377 cases |
+| `asp_cordic` | all four quadrants and both axes (the left-half-plane pre-rotation is where hand-written CORDICs fail); the ±π/2 fold in rotation mode; magnitudes to 2²⁹ | `tb_asp_cordic`, 544 vectoring + 408 rotation cases |
+| `asp_whiten` | all-zero dwell / dead antenna (the clamp exists so it saturates rather than wraps); negative off-diagonals, which round half **away from zero** | `tb_asp_whiten`, plus assertions that the diagonal is exactly real and within 2¹² LSB of 2²⁶ |
+| `asp_jacobi_evd` | equal eigenvalues (sort stability); trace preservation, which fails if a rotation is applied on one side only | `tb_asp_jacobi_evd` checks eigenvectors **and** eigenvalues, asserts descending order and trace |
+| `asp_detect` | statistic exactly at the threshold; rank 2 gated off | `tb_asp_detect` compares both operands of the cross-multiplied test, not just the flag — the flag alone would pass with a threshold wrong by 2× |
+| `asp_weight_calc` | **rank 0**, the normal operating state; a degenerate (numerically zero) eigenvector column; block-float saturation at the `−W` clamp | `tb_asp_weight_calc` checks the weights exactly and separately asserts that rank 0 returns the quiescent beam untouched |
+| `asp_beamformer` | conjugate on the **weights** (getting it backwards passes a broadside test and fails everywhere else); accumulator clear at channel 0 | `tb_asp_beamformer`, 130,944 values, driven with the causal weight sequence |
+| `asp_tx_scale` | clipping; AGC hysteresis band edges; dwell boundary power accumulation | `tb_asp_tx_scale`, 98,208 values from dwell 2 onward, with dwell 1 excluded by design and the reason stated in the testbench |
+| `asp_datapath` | the dwell handshake between blocks; the two-dwell weight schedule; telemetry only valid from the second tick | `tb_asp_datapath` runs several million clocks from raw ADC samples and checks the weight sequence bit-exactly — the strongest end-to-end check available, since the weights depend on every stage from the mixer through the EVD |
+| `asp_axi_lite_regs` | independent AW/W arrival order; write-1-to-clear racing a dwell tick | not co-simulated; recommend the Xilinx AXI VIP in AXI4-Lite protocol-checker mode, or a directed read/write testbench against the register map in the file header |
+| `asp_top` | reset release; `enable` gating | recommend bring-up on hardware with the ILA described below |
+
+### Recommended hardware bring-up
+
+The RTL is verified against the model in simulation; what simulation cannot check
+is the AD9361 interface and the clocking. In order:
+
+1. **Clock first.** Confirm `clk_dsp` is exactly 130.944 MHz and MMCM `locked` is
+   stable. Everything downstream assumes the integer rate plan.
+2. **ILA on the mixer input**, triggered on `rx_valid`. Confirm four antennas
+   arrive in the expected slot order and that the data is not all zeros or all
+   ones — a mis-wired AD9361 interface usually shows as one antenna stuck.
+3. **Read `DWELL_CNT`** (0x0C) and confirm it increments at 1 kHz. If it does
+   not, the sample rate is wrong, not the algorithm.
+4. **Point the array at a clean sky** and confirm `STATUS.detected` stays low.
+   This is the single most valuable hardware test, and it is the one that fails
+   silently: a false alarm produces no symptom except an authentic satellite
+   being nulled.
+5. **Inject a spoofer** (a second signal generator through a splitter with a
+   phase offset) and confirm `STATUS.detected` goes high and the weights in
+   0x30–0x4C move away from the quiescent value.
+6. **Check `CLIP_CNT`** (0x54) stays at zero once `SHIFT_INIT` is set correctly.

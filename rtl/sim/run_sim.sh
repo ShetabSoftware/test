@@ -32,6 +32,11 @@ if [ ! -f "$GOLD/s01_ddc_out.txt" ] || [ "${REGEN:-0}" = "1" ]; then
 fi
 
 # ---------------------------------------------------------------- analyse
+# Rebuild the work library from scratch.  GHDL keys units by the path
+# they were analysed from, so a mix of relative and absolute paths
+# leaves duplicate definitions and "was also defined" warnings that
+# mask real ones.
+rm -f "$BUILD"/*.cf
 echo "=== analysing RTL ==="
 SRC=(
   "$ROOT/rtl/pkg/asp_pkg.vhd"

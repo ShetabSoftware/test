@@ -174,7 +174,12 @@ begin
           wait until rising_edge(clk);
         end loop;
 
-        if o_det = '1' then
+        -- Telemetry only becomes meaningful from the SECOND tick.  At
+        -- the first one the covariance for dwell 1 has only just closed
+        -- and the estimator has not run yet, so o_det still holds its
+        -- reset value.  Counting that as a missed detection would be
+        -- testing the reset value, not the detector.
+        if ntick >= 2 and o_det = '1' then
           ndet := ndet + 1;
         end if;
 
@@ -209,10 +214,11 @@ begin
     assert nchk >= 2
       report "tb_asp_datapath: only " & integer'image(nchk) &
              " weight vectors checked" severity failure;
-    assert ndet = ntick
+    assert ndet = ntick - 1
       report "tb_asp_datapath: detector fired on " & integer'image(ndet) &
-             " of " & integer'image(ntick) &
-             " dwells; the reference scenario has a spoofer on every one"
+             " of the " & integer'image(ntick-1) &
+             " dwells with valid telemetry; the reference scenario has a " &
+             "spoofer on every one"
       severity failure;
     assert o_ovf = '0'
       report "tb_asp_datapath: the shaping FIR input FIFO overflowed"
@@ -225,7 +231,8 @@ begin
     summarise("tb_asp_datapath", cnt, err);
     report "tb_asp_datapath: " & integer'image(ntick) & " dwells, " &
            integer'image(nchk) & " weight vectors bit-identical, detector " &
-           "fired on every dwell, " & integer'image(n_dac) &
+           "fired on all " & integer'image(ndet) &
+           " dwells with valid telemetry, " & integer'image(n_dac) &
            " DAC samples" severity note;
     running <= false;
     wait;
