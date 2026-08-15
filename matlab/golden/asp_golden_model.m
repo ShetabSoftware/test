@@ -597,8 +597,12 @@ rsq = Yv;
 
 % --- Rw(i,j) = Rs(i,j) * Y_i * Y_j >> (F_EVD is reached exactly)
 %   1/sqrt(a) = Y * 2^-(RSQ_F + RSQ_F/2 + k), so the total right shift for
-%   the pair is 2*RSQ_F + RSQ_F/2*2 + k_i + k_j - F_EVD.  Verified below by
-%   the assertion that the diagonal comes out as exactly 2^F_EVD.
+%   the pair is 2*RSQ_F + RSQ_F/2*2 + k_i + k_j - F_EVD.  The diagonal
+%   then comes out at 2^F_EVD to about 3 parts in 10^5 - not exactly,
+%   because Y carries 17 bits and each of the two factors reproduces
+%   unity only to ~1e-6.  Measured spread over the reference dwells is
+%   -1250 .. +1912 LSB.  That is what keeps trace(Rw) close enough to
+%   N*2^F_EVD for the EVD word-length bound to hold.
 Rw = zeros(n);
 base = 2*C.RSQ_F + C.RSQ_F - C.F_EVD;      % = 3*RSQ_F - F_EVD
 for i = 1:n
