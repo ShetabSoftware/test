@@ -306,6 +306,10 @@ for d = 1:nDwell
         % convention as the streaming files - one convention everywhere.
         appendVec(opt, '04_cov_out',    accRe(:) + 1i*accIm(:), d);
         appendVec(opt, '05_whiten_out', Rw(:),                  d);
+        % d_i = sqrt(R_ii).  Not part of the whitened matrix, but stage 8
+        % consumes it to undo the whitening, so the RTL testbench for the
+        % weights needs it as an input vector.
+        appendVec(opt, '05_whiten_dsq', dsq(:),                 d);
         appendVec(opt, '06_evd_U',      U(:),                   d);
         appendVec(opt, '06_evd_lam',    lam(:),                 d);
         appendVec(opt, '07_detect',     [det.lhs; det.rhs; det.detected; det.rank], d);
