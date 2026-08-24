@@ -87,6 +87,8 @@ rtl/
   tb/        co-simulation testbenches, one per stage
   sim/       run_sim.sh — regenerate vectors, analyse, run everything
 constraints/ asp_timing.xdc
+vivado/      create_project.tcl + BD IP checklist
+sw/          PS driver skeleton, register map, 1 kHz ISR policy
 ```
 
 ### Synthesisable VHDL for XC7Z020
@@ -108,7 +110,8 @@ cannot acquire different group delays. ~85 DSP48 of 220, **zero BRAM**.
 
 See **`docs/09-vhdl-implementation.md`** for the PL/PS split, the IP core list
 with exact settings, the block design, and the two places the RTL necessarily
-differs from the model.
+differs from the model. Vivado bootstrap: `vivado/create_project.tcl`.
+PS bring-up skeleton: `sw/`.
 
 ### Golden model for VHDL verification
 

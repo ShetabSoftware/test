@@ -64,7 +64,9 @@
 --    which is a leading-zero comparison rather than a logarithm.  Exact,
 --    and it removes both the sqrt and the log from the hardware.
 --
---  LATENCY   3 clk per sample; the shift update lands at the dwell tick.
+--  LATENCY   3 clk per sample; AGC shift update completes within 7 clk
+--            of the dwell tick (5-step binary search + hysteresis), which
+--            is inside the 8-clk FS_WORK sample spacing.
 --  RESOURCES 2 DSP48E1 (the power accumulator), ~400 FF, ~700 LUT
 --            (dominated by the wide threshold comparators).
 -- =====================================================================
@@ -134,6 +136,20 @@ architecture rtl of asp_tx_scale is
   signal d2_val : std_logic := '0';
   signal d2_re, d2_im : signed(W_DAC-1 downto 0) := (others => '0');
   signal d2_clip : std_logic := '0';
+
+  -- AGC update FSM.  Fast acquisition used to be thirty 96-bit compares
+  -- in one cycle on the dwell tick.  Samples arrive once per 8 clocks, so
+  -- the new shift must be ready before the next sample reaches the scale
+  -- stage (~9 clocks after tick).  A 5-step binary search plus one
+  -- hysteresis cycle fits that budget and keeps the arithmetic bit-exact
+  -- with the original ladder (largest t in 1..30 with p >= 2K*2^(2t-1)).
+  type agc_st_t is (A_IDLE, A_ACQ, A_HYST);
+  signal agc_st   : agc_st_t := A_IDLE;
+  signal agc_p    : unsigned(CMPW-1 downto 0) := (others => '0');
+  signal agc_lo   : integer range 0 to 30 := 0;
+  signal agc_hi   : integer range 0 to 30 := 0;
+  signal agc_iter : integer range 0 to 7 := 0;
+  signal agc_newsh : integer range -64 to 64 := 0;
 
 begin
 
@@ -240,65 +256,105 @@ begin
     variable thr    : unsigned(CMPW-1 downto 0);
     variable thr2   : unsigned(CMPW-1 downto 0);
     variable base   : unsigned(CMPW-1 downto 0);
-    variable e      : integer;
     variable sh     : integer;
     variable twok   : natural;
+    variable mid    : integer;
     variable newsh  : integer;
   begin
     if rising_edge(clk) then
       if rst = '1' then
-        shift_cur <= to_integer(signed(i_shift_init));
-        acquired  <= '0';
-      elsif tick = '1' then
-        twok := 2*G_KDWELL;
-        p    := resize(pacc_hold, CMPW);
+        shift_cur  <= to_integer(signed(i_shift_init));
+        acquired   <= '0';
+        agc_st     <= A_IDLE;
+        agc_iter   <= 0;
+        agc_lo     <= 0;
+        agc_hi     <= 0;
+        agc_newsh  <= 0;
+        agc_p      <= (others => '0');
+      else
+        case agc_st is
 
-        if acquired = '0' then
-          -- FAST ACQUISITION: e = round(log2(max(rms,1))), found by
-          -- locating p between 2K*2^(2e-1) and 2K*2^(2e+1).  No log, no
-          -- sqrt - just a search over at most ~24 exact comparisons.
-          e := 0;
-          for t in 1 to 30 loop
-            base := to_unsigned(twok, CMPW);
-            thr  := shift_left(base, 2*t-1);
-            if p >= thr then
-              e := t;
+          when A_IDLE =>
+            if tick = '1' then
+              twok  := 2*G_KDWELL;
+              agc_p <= resize(pacc_hold, CMPW);
+              if acquired = '0' then
+                -- FAST ACQUISITION: binary search for
+                --   e = max { t in 1..30 : p >= 2K * 2^(2t-1) }
+                -- (e = 0 if none).  Identical to the model's
+                -- round(log2(rms/TARGET)) ladder, one compare per clock.
+                agc_lo   <= 0;
+                agc_hi   <= 30;
+                agc_iter <= 0;
+                agc_st   <= A_ACQ;
+              else
+                agc_newsh <= shift_cur;
+                agc_st    <= A_HYST;
+              end if;
             end if;
-          end loop;
-          newsh := e - 8 - (F_BEAM - F_DAC);
-          acquired <= '1';
-        else
-          newsh := shift_cur;
-        end if;
 
-        -- Hysteresis, evaluated at the shift that WILL be in force.
-        -- if/elsif, NOT two independent tests: the model's branches are
-        -- mutually exclusive and although HI > LO makes both firing
-        -- impossible today, mirroring the structure keeps it that way if
-        -- the band is ever re-tuned.
-        sh   := F_BEAM - F_DAC + newsh;
-        base := to_unsigned(twok, CMPW);
-        pl   := p;
-        if sh < 0 then
-          pl := shift_left(p, -2*sh);
-        end if;
+          when A_ACQ =>
+            -- One compare per clock.  On the fifth decision (iter=4) the
+            -- surviving endpoint is written straight into agc_newsh from
+            -- the same mid test, so hysteresis can run on the next clock
+            -- without waiting for agc_lo to settle.
+            mid := (agc_lo + agc_hi + 1) / 2;
+            if mid = 0 then
+              agc_lo <= 0;
+              newsh  := 0;
+            else
+              base := to_unsigned(2*G_KDWELL, CMPW);
+              thr  := shift_left(base, 2*mid - 1);
+              if agc_p >= thr then
+                agc_lo <= mid;
+                newsh  := mid;
+              else
+                agc_hi <= mid - 1;
+                newsh  := agc_lo;
+              end if;
+            end if;
+            if agc_iter = 4 then
+              agc_newsh <= newsh - 8 - (F_BEAM - F_DAC);
+              acquired  <= '1';
+              agc_st    <= A_HYST;
+            else
+              agc_iter <= agc_iter + 1;
+            end if;
 
-        thr := resize(base * to_unsigned(HI_C, 20), CMPW);
-        if sh >= 0 then
-          thr := shift_left(thr, 2*sh);
-        end if;
-        thr2 := resize(base * to_unsigned(LO_C, 20), CMPW);
-        if sh >= 0 then
-          thr2 := shift_left(thr2, 2*sh);
-        end if;
+          when A_HYST =>
+            -- Hysteresis, evaluated at the shift that WILL be in force.
+            -- if/elsif, NOT two independent tests: the model's branches
+            -- are mutually exclusive and although HI > LO makes both
+            -- firing impossible today, mirroring the structure keeps it
+            -- that way if the band is ever re-tuned.
+            newsh := agc_newsh;
+            sh    := F_BEAM - F_DAC + newsh;
+            base  := to_unsigned(2*G_KDWELL, CMPW);
+            p     := agc_p;
+            pl    := p;
+            if sh < 0 then
+              pl := shift_left(p, -2*sh);
+            end if;
 
-        if pl > thr then
-          newsh := newsh + 1;          -- too hot: shift right more
-        elsif pl < thr2 then
-          newsh := newsh - 1;
-        end if;
+            thr := resize(base * to_unsigned(HI_C, 20), CMPW);
+            if sh >= 0 then
+              thr := shift_left(thr, 2*sh);
+            end if;
+            thr2 := resize(base * to_unsigned(LO_C, 20), CMPW);
+            if sh >= 0 then
+              thr2 := shift_left(thr2, 2*sh);
+            end if;
 
-        shift_cur <= newsh;
+            if pl > thr then
+              newsh := newsh + 1;
+            elsif pl < thr2 then
+              newsh := newsh - 1;
+            end if;
+
+            shift_cur <= newsh;
+            agc_st    <= A_IDLE;
+
+        end case;
       end if;
     end if;
   end process p_agc;

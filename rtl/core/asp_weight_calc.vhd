@@ -134,7 +134,8 @@ architecture rtl of asp_weight_calc is
   type state_t is (
     S_IDLE,
     S_Y0, S_Y_W, S_Y_R,                     -- Y = U(:,j) .* dsq
-    S_BF_PK, S_BF_S1, S_BF_S2, S_BF_AP,     -- block-float scale
+    S_BF_PK, S_BF_PK_CH,                    -- peak mag, one channel/clk
+    S_BF_S1, S_BF_S2, S_BF_AP,              -- block-float scale
     S_IP0, S_IP_W, S_IP_D, S_IP_R,          -- ip  = Q_i^H x
     S_SB0, S_SB_W, S_SB_D, S_SB_R,          -- x  -= (Q_i * ip) >> 2*F_ROT
     S_IP_NEXT,
@@ -275,20 +276,33 @@ begin
           -- are reproduced exactly, INCLUDING the -W clamp, because that
           -- clamp is what makes a very large input saturate rather than
           -- shift forever - and saturation is a behaviour the model has.
+          --
+          -- Peak search is one channel per clock (two abs + two compares)
+          -- rather than eight 48-bit magnitudes in one cycle.  At 1 kHz
+          -- the extra three clocks are free; at 130.944 MHz they are the
+          -- difference between a depth-3 comparator tree and a path that
+          -- closes timing without a multicycle exception.
           when S_BF_PK =>
-            pk := (others => '0');
-            for k in 0 to G_N-1 loop
-              a := resize(abs_ext(vr(k)), CMP);
-              if a > pk then pk := a; end if;
-              a := resize(abs_ext(vi(k)), CMP);
-              if a > pk then pk := a; end if;
-            end loop;
-            bf_pk <= pk;
+            bf_pk <= (others => '0');
             bf_s  <= 0;
-            if pk = 0 then
-              state <= S_BF_AP;            -- all zero: leave unscaled
+            kk    <= 0;
+            state <= S_BF_PK_CH;
+
+          when S_BF_PK_CH =>
+            pk := bf_pk;
+            a  := resize(abs_ext(vr(kk)), CMP);
+            if a > pk then pk := a; end if;
+            a := resize(abs_ext(vi(kk)), CMP);
+            if a > pk then pk := a; end if;
+            bf_pk <= pk;
+            if kk = G_N-1 then
+              if pk = 0 then
+                state <= S_BF_AP;          -- all zero: leave unscaled
+              else
+                state <= S_BF_S1;
+              end if;
             else
-              state <= S_BF_S1;
+              kk <= kk + 1;
             end if;
 
           when S_BF_S1 =>

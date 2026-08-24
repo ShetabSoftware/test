@@ -113,9 +113,13 @@ architecture rtl of asp_whiten is
 
   signal shift_n : natural range 0 to 63 := 0;
 
-  type state_t is (S_IDLE, S_NORM, S_RS, S_SQ_START, S_SQ_WAIT,
+  type state_t is (S_IDLE, S_NORM, S_NORM_SH, S_RS, S_SQ_START, S_SQ_WAIT,
                    S_M1_ISS, S_M1_W, S_M1, S_M2_W, S_M2, S_EMIT, S_FIN);
   signal state : state_t := S_IDLE;
+  -- Registered peak diagonal so ceil_log2 runs alone on the next cycle
+  -- (otherwise the max-of-four tree and the 48-bit priority encoder sit
+  -- in one combinational path at clk_dsp).
+  signal dmax_r : unsigned(W_ACC-1 downto 0) := (others => '0');
 
   signal ent   : integer range 0 to 16 := 0;      -- matrix entry index
   signal chn   : integer range 0 to 4 := 0;       -- diagonal index
@@ -194,9 +198,11 @@ begin
             end if;
 
           when S_NORM =>
-            -- sh = max(0, ceil_log2(max(dmax,1)) - R_NORM_BITS), using
-            -- only the DIAGONAL entries, which are the largest by
-            -- Cauchy-Schwarz and are guaranteed non-negative.
+            -- Peak of the DIAGONAL entries only (Cauchy-Schwarz: they
+            -- dominate the off-diagonal magnitudes; they are also
+            -- non-negative by construction).  Registered into dmax_r so
+            -- the priority encoder below is not stacked on the same
+            -- combinational path.
             dmax := (others => '0');
             for i in 0 to G_N-1 loop
               if r_re(5*i) > signed(dmax) then
@@ -206,7 +212,12 @@ begin
             if dmax = 0 then
               dmax := to_unsigned(1, dmax'length);
             end if;
-            cl := ceil_log2_u(dmax);
+            dmax_r <= dmax;
+            state  <= S_NORM_SH;
+
+          when S_NORM_SH =>
+            -- sh = max(0, ceil_log2(max(dmax,1)) - R_NORM_BITS)
+            cl := ceil_log2_u(dmax_r);
             if cl > R_NORM_BITS then
               shift_n <= cl - R_NORM_BITS;
             else

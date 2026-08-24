@@ -455,23 +455,20 @@ control state and valid pipelines are. That keeps the reset net small, which
 matters more than it sounds: a global high-fanout reset is a routing and timing
 problem, not a safety feature.
 
-### Paths to review first if WNS is negative
+### Paths that were split for timing closure
 
-Three places accepted a long combinational path on purpose, because the block
-concerned runs at 1 kHz with ~130,000 clocks of slack:
+Three places previously stacked a long combinational cone into one FSM
+state. They are now spread across states (still **not** multicycle
+exceptions — the FSMs advance every clock):
 
-1. `asp_weight_calc / S_BF_PK` — max() over eight 48-bit magnitudes, a depth-3
-   comparator tree.
-2. `asp_whiten / S_NORM` — max() over four 48-bit diagonal entries plus a 48-bit
-   `ceil(log2)` priority encoder.
-3. `asp_tx_scale / p_agc` — thirty 96-bit comparisons against **constant**
-   thresholds plus a priority encoder. Most bits fold away, but if this is the
-   failing path the clean fix is a leading-zero count instead of the ladder.
-
-**None of these is constrained as a multicycle path, deliberately.** The state
-machines advance every clock, so a multicycle exception would be *wrong* rather
-than optimistic. The remedy for all three is to spread the work over more states,
-which costs nothing at 1 kHz.
+1. `asp_weight_calc / S_BF_PK` + `S_BF_PK_CH` — peak magnitude one channel
+   (two abs + two compares) per clock instead of eight 48-bit magnitudes
+   in one cycle.
+2. `asp_whiten / S_NORM` + `S_NORM_SH` — max of four diagonals, then
+   `ceil_log2` on the registered peak.
+3. `asp_tx_scale / p_agc` — fast acquisition is a 5-step binary search
+   (one constant-threshold compare per clock) plus hysteresis, finishing
+   inside the 8-clock FS_WORK sample gap after the dwell tick.
 
 ### CDC inventory
 
@@ -487,7 +484,7 @@ Everything else is one synchronous domain by construction.
 
 ## 9. Software requirements (PS)
 
-Minimum to bring the system up:
+Minimum to bring the system up (skeleton in `sw/`):
 
 1. **Configure both AD9361 devices** over SPI: RX LO 1577.466 MHz, TX LO
    1573.374 MHz, RX bandwidth ~10 MHz, sample rate to give FS_ADC = 32.736 MHz.
@@ -498,7 +495,7 @@ Minimum to bring the system up:
 4. Write `CONTROL` (0x04) bit 0 to enable.
 5. Enable the dwell interrupt: `IRQ_ENABLE` (0x60) bit 0.
 
-Per-dwell ISR (1 kHz):
+Per-dwell ISR (1 kHz) — see `sw/src/asp_driver.c` / `asp_dwell_policy`:
 
 1. Read `STATUS`, `LAMBDA0..3`, `DET_LHS/RHS`.
 2. Run the MDL test and the M-of-N hysteresis vote.
@@ -509,14 +506,17 @@ A 1 kHz ISR reading ~15 registers is a few microseconds of Cortex-A9 time; it
 does not need a real-time kernel, but it does need the interrupt not to be
 starved by a userspace logger.
 
+Vivado project bootstrap: `vivado/create_project.tcl` and
+`vivado/bd_checklist.tcl`.
+
 ---
 
 ## 10. Assumptions, limitations, open items
 
 **Assumptions**
 
-- XC7Z020-1 or faster. The design targets 130.944 MHz with the three
-  combinational paths above as the known margin consumers.
+- XC7Z020-1 or faster. The design targets 130.944 MHz; the three formerly
+  long combinational cones (§8) are now multi-state.
 - Two AD9361 devices sharing one LO, MCS-synchronised. Four antennas.
 - `clk_dsp` is derived from the AD9361 sample clock. If it is not, the
   enable-based rate plan is invalid and the design needs FIFOs at every rate
@@ -541,8 +541,8 @@ starved by a userspace logger.
 - The design has not been through Vivado synthesis or place-and-route in this
   environment — no Xilinx toolchain is available here. Resource and timing
   figures are engineering estimates from the structures actually written, not
-  tool reports. **Treat the first implementation run as the confirmation step**,
-  and start with the three paths in §8.
+  tool reports. **Treat the first implementation run as the confirmation step.**
+  Bootstrap with `vivado/create_project.tcl`.
 
 **Open items**
 

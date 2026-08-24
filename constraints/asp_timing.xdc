@@ -69,32 +69,26 @@ set_property MAX_FANOUT 512 [get_nets -hierarchical -filter {NAME =~ *u_dp*rst*}
 #    negative after the first implementation run)
 # ---------------------------------------------------------------------
 # The datapath is heavily pipelined and its arithmetic sits inside DSP48
-# slices, so the streaming stages are not the risk.  The three places
-# where a long combinational path was accepted on purpose, because the
-# block concerned runs at 1 kHz and had 130000 clocks of slack, are:
+# slices, so the streaming stages are not the risk.  Three paths that
+# previously stacked a long combinational cone into one FSM state have
+# been split across states in the RTL (still NOT multicycle-constrained):
 #
-#   a) asp_weight_calc / S_BF_PK
-#      max() over eight 48-bit magnitudes: a depth-3 comparator tree.
-#      If it fails timing, split it across two cycles (compare four,
-#      then two) - the block has ~130000 clocks of slack per dwell and
-#      will not notice one more.
+#   a) asp_weight_calc / S_BF_PK + S_BF_PK_CH
+#      Peak magnitude over eight 48-bit values, one channel (two abs +
+#      two compares) per clock.
 #
-#   b) asp_whiten / S_NORM
-#      max() over four 48-bit diagonal entries followed by a 48-bit
-#      ceil(log2) priority encoder.  Same remedy.
+#   b) asp_whiten / S_NORM + S_NORM_SH
+#      Max of four diagonal entries, then ceil(log2) on the next clock.
 #
 #   c) asp_tx_scale / p_agc
-#      thirty 96-bit comparisons against CONSTANT thresholds plus a
-#      priority encoder.  The thresholds are compile-time constants so
-#      most bits fold away, but if this is the failing path the clean
-#      fix is a leading-zero count on the power accumulator instead of
-#      the comparison ladder.
+#      Fast acquisition is a 5-step binary search (one 96-bit compare
+#      against a constant threshold per clock) plus a hysteresis cycle.
+#      Must finish inside the 8-clk FS_WORK sample gap after the dwell
+#      tick — budget is 7 clocks.
 #
 # None of these is constrained as a multicycle path, and that is
 # deliberate: the finite state machines advance every clock, so a
 # multicycle exception would be simply WRONG rather than optimistic.
-# The remedy for all three is to spread the work over more states, not
-# to relax the constraint.
 
 # ---------------------------------------------------------------------
 # 5. AD9361 PARALLEL INTERFACE

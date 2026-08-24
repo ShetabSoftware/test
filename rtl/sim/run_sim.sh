@@ -13,6 +13,7 @@
 #  Requires: ghdl (>=3.0) and octave-cli or matlab.
 # =====================================================================
 set -u
+set -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD="$ROOT/build"
@@ -102,6 +103,7 @@ for key in "${ORDER[@]}"; do
         echo "=== $tb ==="
         run=$((run+1))
         if ! ghdl -r --workdir=. --std=$STD "$tb" 2>&1 | grep -Ev '^$'; then
+          echo "*** $tb FAILED ***"
           fail=$((fail+1))
         fi
       else
