@@ -17,8 +17,8 @@ work-obj*.cf
 *.ghw
 *.vcd
 
-# Vivado
+# Vivado tool residue.  Project outputs land under build/ (already ignored).
+# The vivado/ directory holds source TCL scripts and is tracked.
 *.jou
 *.log
 .Xil/
-vivado*/
